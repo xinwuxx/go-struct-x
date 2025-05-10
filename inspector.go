@@ -17,6 +17,7 @@ type options struct {
 	MaxDepth     int
 	ShowTag      bool
 	SkipTag      string
+	SkipEmpty    bool
 	FilterPrefix string
 }
 
@@ -54,6 +55,13 @@ func WithFilterPrefix(prefix string) Option {
 func WithShowTag(show bool) Option {
 	return func(o *options) {
 		o.ShowTag = show
+	}
+}
+
+// WithSkipEmpty 设置是否跳过空字段
+func WithSkipEmpty(skip bool) Option {
+	return func(o *options) {
+		o.SkipEmpty = skip
 	}
 }
 
@@ -178,6 +186,10 @@ func (c *context) inspectStruct(val reflect.Value, path string, depth int) []Ins
 			nodes = append(nodes, newNodes...)
 		}
 	default:
+		if c.conf.SkipEmpty && isEmptyValue(val) {
+			return nodes
+		}
+
 		node := InspectNode{
 			Path:  path,
 			Type:  val.Type().String(),
@@ -196,4 +208,23 @@ func (c *context) inspectStruct(val reflect.Value, path string, depth int) []Ins
 
 func startsWith(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+// 判断值是否是零值
+func isEmptyValue(val reflect.Value) bool {
+	switch val.Kind() {
+	case reflect.String, reflect.Array, reflect.Slice, reflect.Map:
+		return val.Len() == 0
+	case reflect.Bool:
+		return !val.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return val.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return val.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return val.Float() == 0
+	case reflect.Interface, reflect.Ptr:
+		return val.IsNil()
+	}
+	return false
 }
