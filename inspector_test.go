@@ -5,10 +5,16 @@ import (
 )
 
 type Example struct {
-	Name   string   `json:"name"`
-	Peers  []string `json:"peers"`
-	Ports  []int    `json:"ports"`
-	Secret string   `json:"-"`
+	Name    string   `json:"name"`
+	Peers   []string `json:"peers"`
+	Ports   []int    `json:"ports"`
+	Secret  string   `json:"-"`
+	Dynamic any
+}
+
+type Host struct {
+	IP     string
+	Number int
 }
 
 func TestInspect(t *testing.T) {
@@ -17,6 +23,10 @@ func TestInspect(t *testing.T) {
 		Peers:  []string{"node1", "node2"},
 		Ports:  []int{6379, 6380},
 		Secret: "hidden",
+		Dynamic: Host{
+			IP:     "0.0.0.0",
+			Number: 41,
+		},
 	}
 
 	nodes, err := Inspect(example)
@@ -28,7 +38,7 @@ func TestInspect(t *testing.T) {
 		t.Fatalf("Expected nodes, but got empty list")
 	}
 
-	var nameFound, peers0Found, peers1Found, ports0Found, ports1Found bool
+	var nameFound, peers0Found, peers1Found, ports0Found, ports1Found, ext1Found bool
 	for _, node := range nodes {
 		if node.Path == "Name" && node.Value == "Test Struct" {
 			nameFound = true
@@ -44,6 +54,9 @@ func TestInspect(t *testing.T) {
 		}
 		if node.Path == "Ports[1]" && node.Value == 6380 {
 			ports1Found = true
+		}
+		if node.Path == "Dynamic.IP" && node.Value == "0.0.0.0" {
+			ext1Found = true
 		}
 	}
 
@@ -61,6 +74,9 @@ func TestInspect(t *testing.T) {
 	}
 	if !ports1Found {
 		t.Errorf("Expected Ports[1] field, but it was not found")
+	}
+	if !ext1Found {
+		t.Errorf("Expected ext1Found field, but it was not found")
 	}
 
 	nodes, err = Inspect(example, WithShowTag(true))

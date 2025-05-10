@@ -162,6 +162,21 @@ func (c *context) inspectStruct(val reflect.Value, path string, depth int) []Ins
 			nodes = append(nodes, newNodes...)
 		}
 	case reflect.Interface:
+		if val.IsNil() {
+			node := InspectNode{
+				Path:  path,
+				Type:  "interface",
+				Value: nil,
+			}
+
+			if c.conf.ShowTag {
+				node.Tag = c.CurrentTag
+			}
+			nodes = append(nodes, node)
+		} else {
+			newNodes := c.inspectStruct(val.Elem(), path, depth+1)
+			nodes = append(nodes, newNodes...)
+		}
 	default:
 		node := InspectNode{
 			Path:  path,
