@@ -2,6 +2,7 @@
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/xinwuxx/go-struct-x)](https://goreportcard.com/report/github.com/xinwuxx/go-struct-x)
 [![Go](https://github.com/xinwuxx/go-struct-x/actions/workflows/go.yml/badge.svg)](https://github.com/xinwuxx/go-struct-x/actions/workflows/go.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/xinwuxx/go-struct-x.svg)](https://pkg.go.dev/github.com/xinwuxx/go-struct-x)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
 GoStructX 是一个轻量的 Go 语言结构体遍历与输出工具。支持树形结构输出、多种格式导出、防止循环引用死循环，可以满足一些调试、日志、配置管理的简单需求。
