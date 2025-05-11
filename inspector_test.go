@@ -35,14 +35,14 @@ func TestInspect(t *testing.T) {
 		}
 
 		// 检查根节点
-		if node.Name != "root" {
-			t.Errorf("Expected root node name to be 'root', got %s", node.Name)
+		if node.Root.Name != "root" {
+			t.Errorf("Expected root node name to be 'root', got %s", node.Root.Name)
 		}
 
 		// 检查基本字段
 		foundName := false
 		foundAge := false
-		for _, child := range node.Children {
+		for _, child := range node.Root.Children {
 			if child.Name == "Name" && child.Value == "Test Struct" {
 				foundName = true
 			}
@@ -66,7 +66,7 @@ func TestInspect(t *testing.T) {
 		}
 
 		foundTag := false
-		for _, child := range node.Children {
+		for _, child := range node.Root.Children {
 			if child.Name == "Name" && child.Tag == "name" {
 				foundTag = true
 				break
@@ -84,7 +84,7 @@ func TestInspect(t *testing.T) {
 			t.Fatalf("Expected no error, but got %v", err)
 		}
 
-		for _, child := range node.Children {
+		for _, child := range node.Root.Children {
 			if child.Name == "Secret" {
 				t.Error("Expected Secret field to be skipped")
 			}
@@ -98,7 +98,7 @@ func TestInspect(t *testing.T) {
 			t.Fatalf("Expected no error, but got %v", err)
 		}
 
-		for _, child := range node.Children {
+		for _, child := range node.Root.Children {
 			if child.Name == "Empty" {
 				t.Error("Expected Empty field to be skipped")
 			}
@@ -113,7 +113,7 @@ func TestInspect(t *testing.T) {
 		}
 
 		// 检查是否只遍历到第一层
-		for _, child := range node.Children {
+		for _, child := range node.Root.Children {
 			if child.Name == "Dynamic" && len(child.Children) > 0 {
 				t.Error("Expected Dynamic field to not have children due to max depth")
 			}
@@ -128,7 +128,7 @@ func TestInspect(t *testing.T) {
 		}
 
 		// 检查是否只包含以 P 开头的字段
-		for _, child := range node.Children {
+		for _, child := range node.Root.Children {
 			if child.Name[0] != 'P' {
 				t.Errorf("Expected field name to start with 'P', got %s", child.Name)
 			}
@@ -144,7 +144,7 @@ func TestInspectWithNil(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected no error, but got %v", err)
 		}
-		if node.Value != nil {
+		if node.Root.Value != nil {
 			t.Error("Expected nil value for nil pointer")
 		}
 	})
@@ -156,7 +156,7 @@ func TestInspectWithNil(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Expected %v, but got error", err)
 		}
-		if node.Value != nil {
+		if node.Root.Value != nil {
 			t.Error("Expected nil value for nil interface")
 		}
 	})

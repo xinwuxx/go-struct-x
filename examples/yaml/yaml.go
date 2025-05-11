@@ -24,6 +24,6 @@ func main() {
 	)
 
 	// 转成 YAML
-	yamlOutput := gostructx.ToYAML(tree)
+	yamlOutput := gostructx.ToYAML(tree.Root)
 	fmt.Println(yamlOutput)
 }

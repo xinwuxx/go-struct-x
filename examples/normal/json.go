@@ -57,6 +57,6 @@ func main() {
 	}
 
 	// 输出漂亮的 JSON
-	jsonData, _ := json.MarshalIndent(nodes, "", "  ")
+	jsonData, _ := json.MarshalIndent(nodes.Root, "", "  ")
 	fmt.Println(string(jsonData))
 }

@@ -8,22 +8,25 @@ import (
 
 func main() {
 	type Example struct {
-		Name  string `json:"name"`
+		Name  string `json:"username"`
+		Age   int    `json:"age"`
 		Ports []int  `json:"ports"`
 	}
 
 	ex := Example{
 		Name:  "server",
-		Ports: []int{8080, 8081},
+		Age:   18,
+		Ports: []int{8080, 8081, 8082},
 	}
 
-	tree, _ := gostructx.Inspect(ex,
+	report, _ := gostructx.Inspect(ex,
 		gostructx.WithMaxDepth(5),
 		gostructx.WithShowTag(true),
 		gostructx.WithSkipEmpty(true),
 	)
 
-	// 直接转 Markdown
-	markdown := gostructx.ToMarkdown(tree.Root)
-	fmt.Println(markdown)
+	fmt.Println("stats:")
+	for t, c := range report.Stats.FieldTypeCount {
+		fmt.Printf("- %s: %d\n", t, c)
+	}
 }
