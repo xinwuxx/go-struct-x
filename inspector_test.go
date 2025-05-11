@@ -6,99 +6,160 @@ import (
 
 type Example struct {
 	Name    string   `json:"name"`
+	Age     int      `json:"age"`
 	Peers   []string `json:"peers"`
 	Ports   []int    `json:"ports"`
 	Secret  string   `json:"-"`
 	Dynamic any
-}
-
-type Host struct {
-	IP     string
-	Number int
+	Empty   string
 }
 
 func TestInspect(t *testing.T) {
 	example := Example{
 		Name:   "Test Struct",
+		Age:    25,
 		Peers:  []string{"node1", "node2"},
 		Ports:  []int{6379, 6380},
 		Secret: "hidden",
-		Dynamic: Host{
-			IP:     "0.0.0.0",
-			Number: 41,
+		Dynamic: map[string]int{
+			"ext1": 1000,
+			"ext2": 2,
 		},
 	}
 
-	nodes, err := Inspect(example)
-	if err != nil {
-		t.Fatalf("Expected no error, but got %v", err)
-	}
-
-	if len(nodes) == 0 {
-		t.Fatalf("Expected nodes, but got empty list")
-	}
-
-	var nameFound, peers0Found, peers1Found, ports0Found, ports1Found, ext1Found bool
-	for _, node := range nodes {
-		if node.Path == "Name" && node.Value == "Test Struct" {
-			nameFound = true
+	// 测试基本功能
+	t.Run("basic inspection", func(t *testing.T) {
+		node, err := Inspect(example)
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
 		}
-		if node.Path == "Peers[0]" && node.Value == "node1" {
-			peers0Found = true
-		}
-		if node.Path == "Peers[1]" && node.Value == "node2" {
-			peers1Found = true
-		}
-		if node.Path == "Ports[0]" && node.Value == 6379 {
-			ports0Found = true
-		}
-		if node.Path == "Ports[1]" && node.Value == 6380 {
-			ports1Found = true
-		}
-		if node.Path == "Dynamic.IP" && node.Value == "0.0.0.0" {
-			ext1Found = true
-		}
-	}
 
-	if !nameFound {
-		t.Errorf("Expected Name field, but it was not found")
-	}
-	if !peers0Found {
-		t.Errorf("Expected Peers[0] field, but it was not found")
-	}
-	if !peers1Found {
-		t.Errorf("Expected Peers[1] field, but it was not found")
-	}
-	if !ports0Found {
-		t.Errorf("Expected Ports[0] field, but it was not found")
-	}
-	if !ports1Found {
-		t.Errorf("Expected Ports[1] field, but it was not found")
-	}
-	if !ext1Found {
-		t.Errorf("Expected ext1Found field, but it was not found")
-	}
-
-	nodes, err = Inspect(example, WithShowTag(true))
-	if err != nil {
-		t.Fatalf("Expected no error, but got %v", err)
-	}
-
-	var tagFound bool
-	for _, node := range nodes {
-		if node.Tag == "name" {
-			tagFound = true
+		// 检查根节点
+		if node.Name != "root" {
+			t.Errorf("Expected root node name to be 'root', got %s", node.Name)
 		}
-	}
 
-	if !tagFound {
-		t.Errorf("Expected to find a tag, but it was not found")
-	}
+		// 检查基本字段
+		foundName := false
+		foundAge := false
+		for _, child := range node.Children {
+			if child.Name == "Name" && child.Value == "Test Struct" {
+				foundName = true
+			}
+			if child.Name == "Age" && child.Value == 25 {
+				foundAge = true
+			}
+		}
+		if !foundName {
+			t.Error("Expected to find Name field with value 'Test Struct'")
+		}
+		if !foundAge {
+			t.Error("Expected to find Age field with value 25")
+		}
+	})
 
-	nodes, err = Inspect(example, WithMaxDepth(1))
-	if err != nil {
-		t.Fatalf("Expected no error, but got %v", err)
-	}
+	// 测试 WithShowTag 选项
+	t.Run("with show tag", func(t *testing.T) {
+		node, err := Inspect(example, WithShowTag(true))
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+
+		foundTag := false
+		for _, child := range node.Children {
+			if child.Name == "Name" && child.Tag == "name" {
+				foundTag = true
+				break
+			}
+		}
+		if !foundTag {
+			t.Error("Expected to find tag 'name' for Name field")
+		}
+	})
+
+	// 测试 WithSkipTag 选项
+	t.Run("with skip tag", func(t *testing.T) {
+		node, err := Inspect(example, WithSkipTag("-"))
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+
+		for _, child := range node.Children {
+			if child.Name == "Secret" {
+				t.Error("Expected Secret field to be skipped")
+			}
+		}
+	})
+
+	// 测试 WithSkipEmpty 选项
+	t.Run("with skip empty", func(t *testing.T) {
+		node, err := Inspect(example, WithSkipEmpty(true))
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+
+		for _, child := range node.Children {
+			if child.Name == "Empty" {
+				t.Error("Expected Empty field to be skipped")
+			}
+		}
+	})
+
+	// 测试 WithMaxDepth 选项
+	t.Run("with max depth", func(t *testing.T) {
+		node, err := Inspect(example, WithMaxDepth(1))
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+
+		// 检查是否只遍历到第一层
+		for _, child := range node.Children {
+			if child.Name == "Dynamic" && len(child.Children) > 0 {
+				t.Error("Expected Dynamic field to not have children due to max depth")
+			}
+		}
+	})
+
+	// 测试 WithFilterPrefix 选项
+	t.Run("with filter prefix", func(t *testing.T) {
+		node, err := Inspect(example, WithFilterPrefix("P"))
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+
+		// 检查是否只包含以 P 开头的字段
+		for _, child := range node.Children {
+			if child.Name[0] != 'P' {
+				t.Errorf("Expected field name to start with 'P', got %s", child.Name)
+			}
+		}
+	})
+}
+
+func TestInspectWithNil(t *testing.T) {
+	// 测试空指针
+	t.Run("nil pointer", func(t *testing.T) {
+		var ptr *Example
+		node, err := Inspect(ptr)
+		if err != nil {
+			t.Fatalf("Expected no error, but got %v", err)
+		}
+		if node.Value != nil {
+			t.Error("Expected nil value for nil pointer")
+		}
+	})
+
+	// 测试空接口
+	t.Run("nil interface", func(t *testing.T) {
+		var iface any
+		node, err := Inspect(iface)
+		if err == nil {
+			t.Fatalf("Expected %v, but got error", err)
+		}
+		if node.Value != nil {
+			t.Error("Expected nil value for nil interface")
+		}
+	})
 }
 
 func TestStartsWith(t *testing.T) {
@@ -110,6 +171,8 @@ func TestStartsWith(t *testing.T) {
 		{"Hello", "Ho", false},
 		{"", "He", false},
 		{"Hello", "", true},
+		{"Hello", "Hello", true},
+		{"Hello", "HelloWorld", false},
 	}
 
 	for _, test := range tests {

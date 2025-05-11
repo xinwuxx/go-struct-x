@@ -7,10 +7,11 @@ import (
 )
 
 type InspectNode struct {
-	Path  string `json:"path"`
-	Type  string `json:"type"`
-	Value any    `json:"value"`
-	Tag   string `json:"tag"`
+	Name     string        `json:"name"`
+	Type     string        `json:"type"`
+	Value    any           `json:"value,omitempty"`
+	Tag      string        `json:"tag,omitempty"`
+	Children []InspectNode `json:"children,omitempty"`
 }
 
 type options struct {
@@ -65,10 +66,10 @@ func WithSkipEmpty(skip bool) Option {
 	}
 }
 
-func Inspect(val any, opt ...Option) ([]InspectNode, error) {
+func Inspect(val any, opt ...Option) (InspectNode, error) {
 	v := reflect.ValueOf(val)
 	if !v.IsValid() {
-		return nil, fmt.Errorf("invalid input value")
+		return InspectNode{}, fmt.Errorf("invalid input value")
 	}
 
 	conf := defaultOptions()
@@ -81,8 +82,13 @@ func Inspect(val any, opt ...Option) ([]InspectNode, error) {
 		Visited: make(map[uintptr]bool),
 	}
 
-	nodes := c.inspectStruct(v, "", 0)
-	return nodes, nil
+	rootNode := InspectNode{
+		Name:     "root",
+		Type:     v.Type().String(),
+		Children: c.inspectValue(v, 0),
+	}
+
+	return rootNode, nil
 }
 
 type context struct {
@@ -91,7 +97,7 @@ type context struct {
 	CurrentTag string
 }
 
-func (c *context) inspectStruct(val reflect.Value, path string, depth int) []InspectNode {
+func (c *context) inspectValue(val reflect.Value, depth int) []InspectNode {
 	var nodes []InspectNode
 
 	if depth > c.conf.MaxDepth {
@@ -100,30 +106,24 @@ func (c *context) inspectStruct(val reflect.Value, path string, depth int) []Ins
 
 	if val.Kind() == reflect.Pointer {
 		if val.IsNil() {
-			nodes = append(nodes, InspectNode{
-				Path:  path,
+			if c.conf.SkipEmpty {
+				return []InspectNode{}
+			}
+
+			return []InspectNode{{
+				Name:  "",
 				Type:  val.Type().String(),
 				Value: nil,
-			})
-
-			return nodes
+			}}
 		}
 
 		ptr := val.Pointer()
 		if c.Visited[ptr] {
-			node := InspectNode{
-				Path:  path,
+			return []InspectNode{{
+				Name:  "",
 				Type:  val.Type().String(),
 				Value: "<circular reference>",
-			}
-
-			if c.conf.ShowTag {
-				node.Tag = c.CurrentTag
-			}
-
-			nodes = append(nodes, node)
-
-			return nodes
+			}}
 		}
 
 		c.Visited[ptr] = true
@@ -132,31 +132,59 @@ func (c *context) inspectStruct(val reflect.Value, path string, depth int) []Ins
 
 	switch val.Kind() {
 	case reflect.Struct:
+		t := val.Type()
 		for i := range val.NumField() {
-			field := val.Type().Field(i)
+			field := t.Field(i)
 
-			if c.conf.FilterPrefix != "" && startsWith(field.Name, c.conf.FilterPrefix) {
+			if c.conf.FilterPrefix != "" && !startsWith(field.Name, c.conf.FilterPrefix) {
 				continue
 			}
 
-			newPath := field.Name
-			if path != "" {
-				newPath = path + "." + newPath
-			}
-
-			if c.conf.ShowTag {
-				c.CurrentTag = field.Tag.Get("json")
+			if c.conf.SkipTag == field.Tag.Get("json") {
+				continue
 			}
 
 			fieldValue := val.Field(i)
-			newNodes := c.inspectStruct(fieldValue, newPath, depth+1)
-			nodes = append(nodes, newNodes...)
+			childNode := InspectNode{
+				Name: field.Name,
+				Type: fieldValue.Type().String(),
+			}
+
+			if c.conf.ShowTag {
+				childNode.Tag = field.Tag.Get("json")
+			}
+
+			children := c.inspectValue(fieldValue, depth+1)
+			if isSimpleValue(fieldValue) {
+				childNode.Value = fieldValue.Interface()
+			} else if len(children) > 0 {
+				childNode.Children = children
+			}
+
+			if c.conf.SkipEmpty &&
+				(childNode.Value == nil || childNode.Value == "" || childNode.Value == 0) &&
+				len(childNode.Children) == 0 {
+				continue
+			}
+
+			nodes = append(nodes, childNode)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := range val.Len() {
-			newPath := fmt.Sprintf("%s[%d]", path, i)
-			newNodes := c.inspectStruct(val.Index(i), newPath, depth+1)
-			nodes = append(nodes, newNodes...)
+			itemVal := val.Index(i)
+			childNode := InspectNode{
+				Name: fmt.Sprintf("[%d]", i),
+				Type: itemVal.Type().String(),
+			}
+
+			children := c.inspectValue(itemVal, depth+1)
+			if isSimpleValue(itemVal) {
+				childNode.Value = itemVal.Interface()
+			} else if len(children) > 0 {
+				childNode.Children = children
+			}
+
+			nodes = append(nodes, childNode)
 		}
 	case reflect.Map:
 		keys := val.MapKeys()
@@ -165,42 +193,37 @@ func (c *context) inspectStruct(val reflect.Value, path string, depth int) []Ins
 		})
 
 		for _, key := range keys {
-			newPath := fmt.Sprintf("%s[%v]", path, key)
-			newNodes := c.inspectStruct(val.MapIndex(key), newPath, depth+1)
-			nodes = append(nodes, newNodes...)
+			itemVal := val.MapIndex(key)
+			childNode := InspectNode{
+				Name: fmt.Sprintf("[%v]", key.Interface()),
+				Type: itemVal.Type().String(),
+			}
+
+			children := c.inspectValue(itemVal, depth+1)
+			if isSimpleValue(itemVal) {
+				childNode.Value = itemVal.Interface()
+			} else if len(children) > 0 {
+				childNode.Children = children
+			}
+
+			nodes = append(nodes, childNode)
 		}
 	case reflect.Interface:
 		if val.IsNil() {
-			node := InspectNode{
-				Path:  path,
+			return []InspectNode{{
+				Name:  "",
 				Type:  "interface",
 				Value: nil,
-			}
-
-			if c.conf.ShowTag {
-				node.Tag = c.CurrentTag
-			}
-			nodes = append(nodes, node)
+			}}
 		} else {
-			newNodes := c.inspectStruct(val.Elem(), path, depth+1)
-			nodes = append(nodes, newNodes...)
+			nodes = c.inspectValue(val.Elem(), depth+1)
 		}
 	default:
-		if c.conf.SkipEmpty && isEmptyValue(val) {
-			return nodes
-		}
-
-		node := InspectNode{
-			Path:  path,
+		nodes = append(nodes, InspectNode{
+			Name:  "",
 			Type:  val.Type().String(),
 			Value: val.Interface(),
-		}
-
-		if c.conf.ShowTag {
-			node.Tag = c.CurrentTag
-		}
-
-		nodes = append(nodes, node)
+		})
 	}
 
 	return nodes
@@ -210,21 +233,14 @@ func startsWith(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
-// 判断值是否是零值
-func isEmptyValue(val reflect.Value) bool {
+// 判断是否是简单类型
+func isSimpleValue(val reflect.Value) bool {
 	switch val.Kind() {
-	case reflect.String, reflect.Array, reflect.Slice, reflect.Map:
-		return val.Len() == 0
-	case reflect.Bool:
-		return !val.Bool()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return val.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return val.Uint() == 0
-	case reflect.Float32, reflect.Float64:
-		return val.Float() == 0
-	case reflect.Interface, reflect.Ptr:
-		return val.IsNil()
+	case reflect.Bool, reflect.String,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
 	}
 	return false
 }

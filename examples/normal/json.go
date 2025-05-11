@@ -48,6 +48,8 @@ func main() {
 	nodes, err := gostructx.Inspect(ex,
 		gostructx.WithMaxDepth(5),
 		gostructx.WithShowTag(true),
+		gostructx.WithSkipEmpty(true),
+		gostructx.WithFilterPrefix("A"),
 	)
 
 	if err != nil {
