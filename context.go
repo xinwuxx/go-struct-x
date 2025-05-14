@@ -13,179 +13,199 @@ type context struct {
 }
 
 func (c *context) inspectValue(val reflect.Value, depth int) []InspectNode {
-	var nodes []InspectNode
-
 	if depth > c.stats.MaxDepth {
 		c.stats.MaxDepth = depth
 	}
-
 	if depth > c.opts.MaxDepth {
-		return nodes
+		return nil
 	}
 
 	if val.Kind() == reflect.Pointer {
-		if val.IsNil() {
-			if c.opts.SkipEmpty {
-				return []InspectNode{}
-			}
-
-			return []InspectNode{{
-				Name:  "",
-				Type:  val.Type().String(),
-				Value: nil,
-			}}
-		}
-
-		ptr := val.Pointer()
-		if c.Visited[ptr] {
-			c.stats.CircularRef++
-			return []InspectNode{{
-				Name:  "",
-				Type:  val.Type().String(),
-				Value: "<circular reference>",
-			}}
-		}
-
-		c.Visited[ptr] = true
-		val = val.Elem()
+		return c.handlePointer(val, depth)
 	}
 
 	switch val.Kind() {
+	case reflect.Pointer:
+		return c.handlePointer(val, depth)
 	case reflect.Struct:
-		t := val.Type()
-		for i := range val.NumField() {
-			c.stats.TotalFields++
-			field := t.Field(i)
-
-			if c.opts.FilterPrefix != "" && !startsWith(field.Name, c.opts.FilterPrefix) {
-				continue
-			}
-
-			if c.opts.SkipTag == field.Tag.Get("json") {
-				continue
-			}
-
-			fieldValue := val.Field(i)
-			childNode := InspectNode{
-				Name: field.Name,
-				Type: fieldValue.Type().String(),
-			}
-
-			if c.opts.ShowTag {
-				childNode.Tag = field.Tag.Get("json")
-			}
-
-			children := c.inspectValue(fieldValue, depth+1)
-			if isSimpleValue(fieldValue) {
-				childNode.Value = fieldValue.Interface()
-			} else if len(children) > 0 {
-				childNode.Children = children
-			}
-
-			if c.opts.SkipEmpty &&
-				(childNode.Value == nil || childNode.Value == "" || childNode.Value == 0) &&
-				len(childNode.Children) == 0 {
-				continue
-			}
-
-			nodes = append(nodes, childNode)
-		}
+		return c.handleStruct(val, depth)
 	case reflect.Slice, reflect.Array:
-		length := val.Len()
-		maxLen := length
-		if c.opts.MaxSliceMapLen > 0 && length > c.opts.MaxSliceMapLen {
-			maxLen = c.opts.MaxSliceMapLen
-		}
-
-		for i := range maxLen {
-			itemVal := val.Index(i)
-			childNode := InspectNode{
-				Name: fmt.Sprintf("[%d]", i),
-				Type: itemVal.Type().String(),
-			}
-
-			children := c.inspectValue(itemVal, depth+1)
-			if isSimpleValue(itemVal) {
-				childNode.Value = itemVal.Interface()
-			} else if len(children) > 0 {
-				childNode.Children = children
-			}
-
-			nodes = append(nodes, childNode)
-		}
-
-		if maxLen < length {
-			nodes = append(nodes, InspectNode{
-				Name:  "...",
-				Type:  "truncated",
-				Value: fmt.Sprintf("%d items truncated", length-maxLen),
-			})
-		}
+		return c.handleSliceArray(val, depth)
 	case reflect.Map:
-		keys := val.MapKeys()
-		sort.Slice(keys, func(i, j int) bool {
-			return fmt.Sprintf("%v", keys[i].Interface()) < fmt.Sprintf("%v", keys[j].Interface())
-		})
-
-		length := len(keys)
-		maxLen := length
-		if c.opts.MaxSliceMapLen > 0 && length > c.opts.MaxSliceMapLen {
-			maxLen = c.opts.MaxSliceMapLen
-		}
-
-		for _, key := range keys[:maxLen] {
-			itemVal := val.MapIndex(key)
-			childNode := InspectNode{
-				Name: fmt.Sprintf("[%v]", key.Interface()),
-				Type: itemVal.Type().String(),
-			}
-
-			children := c.inspectValue(itemVal, depth+1)
-			if isSimpleValue(itemVal) {
-				childNode.Value = itemVal.Interface()
-			} else if len(children) > 0 {
-				childNode.Children = children
-			}
-
-			nodes = append(nodes, childNode)
-		}
-
-		if maxLen < length {
-			nodes = append(nodes, InspectNode{
-				Name:  "...",
-				Type:  "truncated",
-				Value: fmt.Sprintf("%d items truncated", length-maxLen),
-			})
-		}
+		return c.handleMap(val, depth)
 	case reflect.Interface:
-		if val.IsNil() {
-			return []InspectNode{{
-				Name:  "",
-				Type:  "interface",
-				Value: nil,
-			}}
-		} else {
-			nodes = c.inspectValue(val.Elem(), depth+1)
-		}
+		return c.handleInterface(val, depth)
 	default:
-		nodes = append(nodes, InspectNode{
+		return []InspectNode{c.createSimpleNode("", val)}
+	}
+}
+
+func (c *context) handlePointer(val reflect.Value, depth int) []InspectNode {
+	if val.IsNil() {
+		if c.opts.SkipEmpty {
+			return nil
+		}
+		return []InspectNode{{
 			Name:  "",
 			Type:  val.Type().String(),
-			Value: val.Interface(),
-		})
-
-		typeStr := val.Type().String()
-		c.stats.FieldTypeCount[typeStr]++
+			Value: nil,
+		}}
 	}
 
+	ptr := val.Pointer()
+	if c.Visited[ptr] {
+		c.stats.CircularRef++
+		return []InspectNode{{
+			Name:  "",
+			Type:  val.Type().String(),
+			Value: "<circular reference>",
+		}}
+	}
+
+	c.Visited[ptr] = true
+	return c.inspectValue(val.Elem(), depth)
+}
+
+func (c *context) handleStruct(val reflect.Value, depth int) []InspectNode {
+	t := val.Type()
+	var nodes []InspectNode
+
+	for i := 0; i < val.NumField(); i++ {
+		c.stats.TotalFields++
+		field := t.Field(i)
+		fieldValue := val.Field(i)
+
+		if c.opts.FilterPrefix != "" && !startsWith(field.Name, c.opts.FilterPrefix) {
+			continue
+		}
+		if c.opts.SkipTag == field.Tag.Get("json") {
+			continue
+		}
+
+		node := InspectNode{
+			Name: field.Name,
+			Type: fieldValue.Type().String(),
+		}
+		if c.opts.ShowTag {
+			node.Tag = field.Tag.Get("json")
+		}
+
+		children := c.inspectValue(fieldValue, depth+1)
+		if isSimpleValue(fieldValue) {
+			node.Value = fieldValue.Interface()
+		} else if len(children) > 0 {
+			node.Children = children
+		}
+
+		if c.opts.SkipEmpty && isEmptyNode(node) {
+			continue
+		}
+
+		nodes = append(nodes, node)
+	}
 	return nodes
+}
+
+func (c *context) handleSliceArray(val reflect.Value, depth int) []InspectNode {
+	length := val.Len()
+	maxLen := length
+	if c.opts.MaxSliceMapLen > 0 && length > c.opts.MaxSliceMapLen {
+		maxLen = c.opts.MaxSliceMapLen
+	}
+
+	var nodes []InspectNode
+	for i := 0; i < maxLen; i++ {
+		itemVal := val.Index(i)
+		node := InspectNode{
+			Name: fmt.Sprintf("[%d]", i),
+			Type: itemVal.Type().String(),
+		}
+
+		children := c.inspectValue(itemVal, depth+1)
+		if isSimpleValue(itemVal) {
+			node.Value = itemVal.Interface()
+		} else if len(children) > 0 {
+			node.Children = children
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	if maxLen < length {
+		nodes = append(nodes, InspectNode{
+			Name:  "...",
+			Type:  "truncated",
+			Value: fmt.Sprintf("%d items truncated", length-maxLen),
+		})
+	}
+	return nodes
+}
+
+func (c *context) handleMap(val reflect.Value, depth int) []InspectNode {
+	keys := val.MapKeys()
+	sort.Slice(keys, func(i, j int) bool {
+		return fmt.Sprintf("%v", keys[i].Interface()) < fmt.Sprintf("%v", keys[j].Interface())
+	})
+
+	length := len(keys)
+	maxLen := length
+	if c.opts.MaxSliceMapLen > 0 && length > c.opts.MaxSliceMapLen {
+		maxLen = c.opts.MaxSliceMapLen
+	}
+
+	var nodes []InspectNode
+	for _, key := range keys[:maxLen] {
+		itemVal := val.MapIndex(key)
+		node := InspectNode{
+			Name: fmt.Sprintf("[%v]", key.Interface()),
+			Type: itemVal.Type().String(),
+		}
+
+		children := c.inspectValue(itemVal, depth+1)
+		if isSimpleValue(itemVal) {
+			node.Value = itemVal.Interface()
+		} else if len(children) > 0 {
+			node.Children = children
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	if maxLen < length {
+		nodes = append(nodes, InspectNode{
+			Name:  "...",
+			Type:  "truncated",
+			Value: fmt.Sprintf("%d items truncated", length-maxLen),
+		})
+	}
+	return nodes
+}
+
+func (c *context) handleInterface(val reflect.Value, depth int) []InspectNode {
+	if val.IsNil() {
+		return []InspectNode{{
+			Name:  "",
+			Type:  "interface",
+			Value: nil,
+		}}
+	}
+	return c.inspectValue(val.Elem(), depth+1)
+}
+
+func (c *context) createSimpleNode(name string, val reflect.Value) InspectNode {
+	typeStr := val.Type().String()
+	c.stats.FieldTypeCount[typeStr]++
+	return InspectNode{
+		Name:  name,
+		Type:  typeStr,
+		Value: val.Interface(),
+	}
 }
 
 func startsWith(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
-// 判断是否是简单类型
 func isSimpleValue(val reflect.Value) bool {
 	switch val.Kind() {
 	case reflect.Bool, reflect.String,
@@ -195,4 +215,8 @@ func isSimpleValue(val reflect.Value) bool {
 		return true
 	}
 	return false
+}
+
+func isEmptyNode(n InspectNode) bool {
+	return (n.Value == nil || n.Value == "" || n.Value == 0) && len(n.Children) == 0
 }
