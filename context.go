@@ -70,7 +70,7 @@ func (c *context) handleStruct(val reflect.Value, depth int) []InspectNode {
 	t := val.Type()
 	var nodes []InspectNode
 
-	for i := 0; i < val.NumField(); i++ {
+	for i := range val.NumField() {
 		c.stats.TotalFields++
 		field := t.Field(i)
 		fieldValue := val.Field(i)
@@ -90,11 +90,13 @@ func (c *context) handleStruct(val reflect.Value, depth int) []InspectNode {
 			node.Tag = field.Tag.Get("json")
 		}
 
-		children := c.inspectValue(fieldValue, depth+1)
 		if isSimpleValue(fieldValue) {
 			node.Value = fieldValue.Interface()
-		} else if len(children) > 0 {
-			node.Children = children
+		} else {
+			children := c.inspectValue(fieldValue, depth+1)
+			if len(children) > 0 {
+				node.Children = children
+			}
 		}
 
 		if c.opts.SkipEmpty && isEmptyNode(node) {
@@ -114,18 +116,20 @@ func (c *context) handleSliceArray(val reflect.Value, depth int) []InspectNode {
 	}
 
 	var nodes []InspectNode
-	for i := 0; i < maxLen; i++ {
+	for i := range maxLen {
 		itemVal := val.Index(i)
 		node := InspectNode{
 			Name: fmt.Sprintf("[%d]", i),
 			Type: itemVal.Type().String(),
 		}
 
-		children := c.inspectValue(itemVal, depth+1)
 		if isSimpleValue(itemVal) {
 			node.Value = itemVal.Interface()
-		} else if len(children) > 0 {
-			node.Children = children
+		} else {
+			children := c.inspectValue(itemVal, depth+1)
+			if len(children) > 0 {
+				node.Children = children
+			}
 		}
 
 		nodes = append(nodes, node)
@@ -161,11 +165,13 @@ func (c *context) handleMap(val reflect.Value, depth int) []InspectNode {
 			Type: itemVal.Type().String(),
 		}
 
-		children := c.inspectValue(itemVal, depth+1)
 		if isSimpleValue(itemVal) {
 			node.Value = itemVal.Interface()
-		} else if len(children) > 0 {
-			node.Children = children
+		} else {
+			children := c.inspectValue(itemVal, depth+1)
+			if len(children) > 0 {
+				node.Children = children
+			}
 		}
 
 		nodes = append(nodes, node)
