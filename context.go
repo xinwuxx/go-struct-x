@@ -20,10 +20,6 @@ func (c *context) inspectValue(val reflect.Value, depth int) []InspectNode {
 		return nil
 	}
 
-	if val.Kind() == reflect.Pointer {
-		return c.handlePointer(val, depth)
-	}
-
 	switch val.Kind() {
 	case reflect.Pointer:
 		return c.handlePointer(val, depth)
