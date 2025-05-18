@@ -8,7 +8,7 @@ import (
 
 type context struct {
 	opts    *options
-	Visited map[uintptr]bool
+	visited map[uintptr]bool
 	stats   Stats
 }
 
@@ -49,7 +49,7 @@ func (c *context) handlePointer(val reflect.Value, depth int) []InspectNode {
 	}
 
 	ptr := val.Pointer()
-	if c.Visited[ptr] {
+	if c.visited[ptr] {
 		c.stats.CircularRef++
 		return []InspectNode{{
 			Name:  "",
@@ -58,7 +58,7 @@ func (c *context) handlePointer(val reflect.Value, depth int) []InspectNode {
 		}}
 	}
 
-	c.Visited[ptr] = true
+	c.visited[ptr] = true
 	return c.inspectValue(val.Elem(), depth)
 }
 

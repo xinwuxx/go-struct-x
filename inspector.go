@@ -18,7 +18,7 @@ func Inspect(val any, opt ...Option) (InspectReport, error) {
 
 	c := &context{
 		opts:    opts,
-		Visited: make(map[uintptr]bool),
+		visited: make(map[uintptr]bool),
 		stats: Stats{
 			FieldTypeCount: make(map[string]int),
 		},
