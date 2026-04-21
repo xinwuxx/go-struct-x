@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 )
 
 type context struct {
@@ -64,7 +65,7 @@ func (c *context) handlePointer(val reflect.Value, depth int) []InspectNode {
 
 func (c *context) handleStruct(val reflect.Value, depth int) []InspectNode {
 	t := val.Type()
-	var nodes []InspectNode
+	nodes := make([]InspectNode, 0, val.NumField())
 
 	for i := range val.NumField() {
 		c.stats.TotalFields++
@@ -86,14 +87,7 @@ func (c *context) handleStruct(val reflect.Value, depth int) []InspectNode {
 			node.Tag = field.Tag.Get("json")
 		}
 
-		if isSimpleValue(fieldValue) {
-			node.Value = fieldValue.Interface()
-		} else {
-			children := c.inspectValue(fieldValue, depth+1)
-			if len(children) > 0 {
-				node.Children = children
-			}
-		}
+		c.fillNodeValueOrChildren(&node, fieldValue, depth+1)
 
 		if c.opts.SkipEmpty && isEmptyNode(node) {
 			continue
@@ -111,22 +105,18 @@ func (c *context) handleSliceArray(val reflect.Value, depth int) []InspectNode {
 		maxLen = c.opts.MaxSliceMapLen
 	}
 
-	var nodes []InspectNode
+	extra := 0
+	if maxLen < length {
+		extra = 1 // truncated node
+	}
+	nodes := make([]InspectNode, 0, maxLen+extra)
 	for i := range maxLen {
 		itemVal := val.Index(i)
 		node := InspectNode{
 			Name: fmt.Sprintf("[%d]", i),
 			Type: itemVal.Type().String(),
 		}
-
-		if isSimpleValue(itemVal) {
-			node.Value = itemVal.Interface()
-		} else {
-			children := c.inspectValue(itemVal, depth+1)
-			if len(children) > 0 {
-				node.Children = children
-			}
-		}
+		c.fillNodeValueOrChildren(&node, itemVal, depth+1)
 
 		nodes = append(nodes, node)
 	}
@@ -142,33 +132,40 @@ func (c *context) handleSliceArray(val reflect.Value, depth int) []InspectNode {
 }
 
 func (c *context) handleMap(val reflect.Value, depth int) []InspectNode {
+	type mapKey struct {
+		value reflect.Value
+		text  string
+	}
 	keys := val.MapKeys()
-	sort.Slice(keys, func(i, j int) bool {
-		return fmt.Sprintf("%v", keys[i].Interface()) < fmt.Sprintf("%v", keys[j].Interface())
+	keyPairs := make([]mapKey, len(keys))
+	for i, key := range keys {
+		keyPairs[i] = mapKey{
+			value: key,
+			text:  fmt.Sprint(key.Interface()),
+		}
+	}
+	sort.Slice(keyPairs, func(i, j int) bool {
+		return keyPairs[i].text < keyPairs[j].text
 	})
 
-	length := len(keys)
+	length := len(keyPairs)
 	maxLen := length
 	if c.opts.MaxSliceMapLen > 0 && length > c.opts.MaxSliceMapLen {
 		maxLen = c.opts.MaxSliceMapLen
 	}
 
-	var nodes []InspectNode
-	for _, key := range keys[:maxLen] {
-		itemVal := val.MapIndex(key)
+	extra := 0
+	if maxLen < length {
+		extra = 1 // truncated node
+	}
+	nodes := make([]InspectNode, 0, maxLen+extra)
+	for _, key := range keyPairs[:maxLen] {
+		itemVal := val.MapIndex(key.value)
 		node := InspectNode{
-			Name: fmt.Sprintf("[%v]", key.Interface()),
+			Name: "[" + key.text + "]",
 			Type: itemVal.Type().String(),
 		}
-
-		if isSimpleValue(itemVal) {
-			node.Value = itemVal.Interface()
-		} else {
-			children := c.inspectValue(itemVal, depth+1)
-			if len(children) > 0 {
-				node.Children = children
-			}
-		}
+		c.fillNodeValueOrChildren(&node, itemVal, depth+1)
 
 		nodes = append(nodes, node)
 	}
@@ -204,8 +201,20 @@ func (c *context) createSimpleNode(name string, val reflect.Value) InspectNode {
 	}
 }
 
+func (c *context) fillNodeValueOrChildren(node *InspectNode, val reflect.Value, depth int) {
+	if isSimpleValue(val) {
+		node.Value = val.Interface()
+		return
+	}
+
+	children := c.inspectValue(val, depth)
+	if len(children) > 0 {
+		node.Children = children
+	}
+}
+
 func startsWith(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+	return strings.HasPrefix(s, prefix)
 }
 
 func isSimpleValue(val reflect.Value) bool {
